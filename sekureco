@@ -1,0 +1,135 @@
+#!/usr/bin/python
+import os
+from M2Crypto import RSA
+from M2Crypto.util import passphrase_callback
+import m2secret
+import zipfile
+import contextlib
+import tempfile
+
+def load(filename):
+    return open(filename).read()
+
+def save(filename, stream):
+    open(filename, 'wb').write(stream)
+
+def encrypt(filename, encfile, secret_key):
+    stream = load(filename)
+    secret = m2secret.Secret()
+    secret.encrypt(stream, secret_key)
+    save(encfile, secret.serialize())
+
+def decrypt(encfile, filename, secret_key):
+    enc_stream = load(encfile)
+    secret = m2secret.Secret()
+    secret.deserialize(enc_stream)
+    save(filename, secret.decrypt(secret_key))
+
+def new_secret_key(privfname, keyfname, secfname):
+    secret_key = os.urandom(80)
+    keypair = RSA.gen_key(2**12, 65537)
+    keypair.save_key(privfname)
+    enc_secret_key = keypair.public_encrypt(secret_key, RSA.pkcs1_oaep_padding)
+    save(keyfname, enc_secret_key)
+    save(secfname, secret_key)
+    return secret_key
+
+def load_secret_key(privfname, keyfname):
+    enc_secret_key = load(keyfname)
+    private_key = load(privfname)
+    rsa = RSA.load_key_string(private_key)
+    return rsa.private_decrypt(enc_secret_key, RSA.pkcs1_oaep_padding)
+
+#-------------------------
+# user functions
+#-------------------------
+private_key_filename = 'privkey'
+encrypt_sec_filename = 'secret.enc'
+archive_secs = 'secrets.enc.zip'
+sec_filename = 'secrets'
+
+def generate_new(secretsfile=archive_secs, seckey=sec_filename):
+    print 'Now generating new keys for securing yourself...'
+    new_secret_key(private_key_filename, encrypt_sec_filename, seckey)
+    zipobj = contextlib.closing(zipfile.ZipFile(secretsfile, 'w'))
+    with zipobj as zfd:
+        zfd.write(private_key_filename)
+        zfd.write(encrypt_sec_filename)
+    os.remove(private_key_filename)
+    os.remove(encrypt_sec_filename)
+    print '''\
+When encrypting or decrypting files you will need to use the file %s. Keep this file only on your machine.
+
+Upload %s somewhere safe. Whenever you need to recover the file %s, you can use:
+
+  sekureco recover %s %s
+
+You will be prompted for your password and it will retrieve the file %s.'''%(seckey, secretsfile, seckey, secretsfile, seckey, seckey)
+
+def recover_secret(secretsfile=archive_secs, exportfile=sec_filename):
+    print 'Recovering file %s from %s...'%(exportfile, secretsfile)
+    zipobj = zipfile.ZipFile(secretsfile)
+    zipobj.extract(private_key_filename)
+    zipobj.extract(encrypt_sec_filename)
+    save(exportfile, load_secret_key(private_key_filename, encrypt_sec_filename))
+    os.remove(private_key_filename)
+    os.remove(encrypt_sec_filename)
+
+def encrypt_file(filename, encfile, secretsfile=sec_filename):
+    sec = load(secretsfile)
+    encrypt(filename, encfile, sec)
+
+def decrypt_file(encfile, filename, secretsfile=sec_filename):
+    sec = load(secretsfile)
+    decrypt(encfile, filename, sec)
+
+def show_help():
+        print '''\
+Usage: sekureco <action> ...
+ generate [secrets.enc.zip] [secrets]          - Generate new secrets.
+ recover [secrets.enc.zip] [secrets]           - Retrieve your secret file after losing it.
+ encrypt <filename> <encrypted file> [secrets] - Encrypt a file using your secret file.
+ decrypt <encrypted file> <filename> [secrets] - Decrypt a file using your secret file.
+
+If this is your first time running this program then you will want to run:
+
+  sekureco generate
+
+Instructions will be given on screen.
+'''
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) <= 1:
+        show_help()
+    elif sys.argv[1] == 'help':
+        show_help()
+    elif sys.argv[1] == 'generate':
+        if len(sys.argv) == 2:
+            generate_new()
+        elif len(sys.argv) == 3:
+            generate_new(sys.argv[2])
+        else:
+            generate_new(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 'recover':
+        if len(sys.argv) == 2:
+            recover_secret()
+        elif len(sys.argv) == 3:
+            recover_secret(sys.argv[2])
+        else:
+            recover_secret(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == 'encrypt':
+        if len(sys.argv) < 4:
+            show_help()
+        elif len(sys.argv) == 4:
+            encrypt_file(sys.argv[2], sys.argv[3])
+        else:
+            encrypt_file(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif sys.argv[1] == 'decrypt':
+        if len(sys.argv) < 4:
+            show_help()
+        elif len(sys.argv) == 4:
+            decrypt_file(sys.argv[2], sys.argv[3])
+        else:
+            decrypt_file(sys.argv[2], sys.argv[3], sys.argv[4])
+        

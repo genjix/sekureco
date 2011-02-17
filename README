@@ -1,0 +1,7 @@
+Depends:
+
+  sudo aptitude install python-m2crypto
+
+First time use run:
+
+  sekureco help

@@ -1,0 +1,6 @@
+ID nickname dirname secretcode attempts locktime
+
+retrieve secretcode, secret by successfully unencrypt
+4 attempts then lock for 
+
+create table sekureco(nickname varchar(100) not null, dirname varchar(40) not null, password varchar(80) not null, attempts int not null, locktime int unsigned;

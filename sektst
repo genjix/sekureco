@@ -1,0 +1,78 @@
+#!/usr/bin/python
+import os
+from M2Crypto import RSA
+from M2Crypto.util import passphrase_callback
+import m2secret
+import zipfile
+import contextlib
+import tempfile
+import shutil
+
+def load(filename):
+    return open(filename).read()
+
+def save(filename, stream):
+    open(filename, 'wb').write(stream)
+
+def encrypt(filename, encfile, secret_key):
+    stream = load(filename)
+    secret = m2secret.Secret()
+    secret.encrypt(stream, secret_key)
+    save(encfile, secret.serialize())
+
+def decrypt(encfile, filename, secret_key):
+    enc_stream = load(encfile)
+    secret = m2secret.Secret()
+    secret.deserialize(enc_stream)
+    save(filename, secret.decrypt(secret_key))
+
+def new_secret_key(privfname, keyfname, secfname):
+    secret_key = os.urandom(80)
+    keypair = RSA.gen_key(2**12, 65537)
+    keypair.save_key(privfname)
+    enc_secret_key = keypair.public_encrypt(secret_key, RSA.pkcs1_oaep_padding)
+    save(keyfname, enc_secret_key)
+    save(secfname, secret_key)
+    return secret_key
+
+def load_secret_key(privfname, keyfname, password):
+    enc_secret_key = load(keyfname)
+    private_key = load(privfname)
+    read_password = lambda *args: password
+    rsa = RSA.load_key_string(private_key, read_password)
+    #return rsa.private_decrypt(enc_secret_key, RSA.pkcs1_oaep_padding)
+
+#-------------------------
+# user functions
+#-------------------------
+private_key_filename = 'privkey'
+encrypt_sec_filename = 'secret.enc'
+archive_secs = 'secrets.enc.zip'
+sec_filename = 'secrets'
+
+def recover_secret(secretsfile, password, exportfile=sec_filename):
+    tmpdir = tempfile.mkdtemp()
+    zipobj = zipfile.ZipFile(secretsfile)
+    zipobj.extract(private_key_filename, tmpdir)
+    zipobj.extract(encrypt_sec_filename, tmpdir)
+    pkf_full = os.path.join(tmpdir, private_key_filename)
+    esf_full = os.path.join(tmpdir, encrypt_sec_filename)
+    exportfile = os.path.join(tmpdir, exportfile)
+    load_secret_key(pkf_full, esf_full, password)
+    shutil.rmtree(tmpdir)
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) != 3:
+        sys.exit(-1)
+    secretsfile = sys.argv[1]
+    password = sys.argv[2]
+    try:
+        recover_secret(secretsfile, password)
+    except RSA.RSAError:
+        sys.exit(0)
+    except:
+        sys.exit(-1)
+    else:
+        sys.exit(1)
+
